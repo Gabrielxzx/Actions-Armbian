@@ -14,31 +14,43 @@ on:
     repository_dispatch:
     workflow_dispatch:
         inputs:
-            ssh:
-                description: 'SSH connection to Actions'
+            set_release:
+                description: "Select OS Release."
                 required: false
-                default: 'false'
-    schedule:
-        - cron: 30 17 * * *
-
+                default: "jammy"
+                type: choice
+                options:
+                    - jammy
+                    - noble
+                    - bullseye
+                    - bookworm
+            armbian_board:
+                description: "Select device board."
+                required: false
+                default: "all"
+                type: choice
+                options:
+                    - hinlink-h28k
+                    - hinlink-ht2
+                    - mangopi-m28k
+                    - nanopi-r2c
+                    - nanopi-r2s
+                    - nanopi-r5s
+                    - nanopineo2
+                    - orangepi3b
+                    - orangepizero
+                    - orangepizero3
+                    - orangepizeroplus
+                    - panther-x2
 
 env:
     REPO_URL: https://github.com/coolsnowwolf/lede
     REPO_BRANCH: master
-    FEEDS_CONF: compile/feeds.conf/feeds.conf.default
-    CONFIG_FILE: compile/config/RockChip-Armv8.config
-    EXTRA_CONFIG: compile/config/Extra.config
-    DIY_P1_SH: compile/scripts/diy-part1.sh
-    DIY_P2_SH: compile/scripts/diy-part2.sh
-    Preset_P1_SH: compile/scripts/preset-part1.sh
-    Preset_P2_SH: compile/scripts/preset-part2.sh
-    DEVICE_KERNEL: arm64
-    FIRMWARE_TAG: Rockchip_Arm64
+    ROOTFS_SCRIPT: compile-kernel/tools/script/armbian_rootfs.sh
     DEPENDS_URL: https://raw.githubusercontent.com/Gabrielxzx/Gabrielxzx-luci/master/openwrt-list/depends-ubuntu-2004-lede
-    UPLOAD_BIN_DIR: false
     UPLOAD_ARTIFACT: true
     UPLOAD_RELEASE: true
-    TZ: Asia/Shanghai
+    TZ: America/New_York
 
 jobs:
   build-LEDE:
@@ -109,13 +121,46 @@ jobs:
             df -hT
             echo "=============================================================================="
 
-      - name: Build Armbian
+      - name: Download source code
+        id: down
         working-directory: /builder
-        uses: armbian/build@main
-        env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.init.outputs.status == 'success' && !cancelled()
+        run: |
+            df -hT ${PWD}
+            git clone -q --single-branch --depth=1 --branch=main https://github.com/armbian/build.git build
+            ln -sf /builder/build ${GITHUB_WORKSPACE}/build
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Compile Armbian [ ${{ inputs.set_release }} ]
+        id: compile
+        working-directory: /builder
+        if: steps.down.outputs.status == 'success' && !cancelled()
+        run: |
+            # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
+            cd build/
+            ./compile.sh build BOARD=${{ inputs.armbian_board }} BRANCH=current RELEASE=${{ inputs.set_release }} BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Organize files and clear space
+        id: clean
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        run: |
+            # Organize and keep essential files, delete unnecessary files
+            chmod +x ${ROOTFS_SCRIPT}
+            ${ROOTFS_SCRIPT} -v ${{ inputs.set_release }}
+            
+
+            # Output cleaning result information
+            df -hT ${PWD}
+            echo "build_tag=Armbian_${{ inputs.set_release }}_${{ inputs.armbian_board }}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Upload Armbian image to Release
+        uses: ncipollo/release-action@main
+        if: steps.clean.outputs.status == 'success' && !cancelled()
         with:
-            armbian_token: ${{ secrets.GITHUB_TOKEN }}
-            armbian_target: build
-            armbian_release: jammy
-            armbian_board: orangepizero
+            tag: ${{ steps.clean.outputs.build_tag }}
+            artifacts: build/output/images/*
+            allowUpdates: true
+            token: ${{ secrets.GITHUB_TOKEN }}
+
