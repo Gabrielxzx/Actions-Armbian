@@ -139,20 +139,38 @@ jobs:
             echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
             echo "status=success" >> ${GITHUB_OUTPUT}
 
+      - name: Organize files
+        id: organize
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        run: |
+            cd build/
+            [[ -d "tar" ]] || mkdir tar
+            cp -f output/images/*img tar/
+            rm -rf output/images/*img
+            cd tar/
+            for file in *; do [[ ! -d "${file}" ]] && tar -Jcvf ${file}.xz ${file}; done
+            cd
+            cd build/
+            cp -f tar/*.img.xz output/images/
+            echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ inputs.armbian_board }}" >> $GITHUB_OUTPUT
+            echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+            touch release.txt
+            echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload Armbian image to artifact
         uses: actions/upload-artifact@main
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACT == 'true' && !cancelled()
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_ARTIFACT == 'true' && !cancelled()
         with:
             name: Armbian_${{ inputs.armbian_board }}_${{ env.FILE_DATE }}
             path: build/output/images/*
 
       - name: Upload Armbian image to Release
         uses: softprops/action-gh-release@v2.0.4
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-            name: ${{ env.FILE_DATE }}_${{ inputs.armbian_board }} Armbian
-            tag_name: ${{ env.FILE_DATE }}_${{ inputs.armbian_board }}
+            name: ${{ steps.organize.outputs.release_date }} ${{ inputs.armbian_board }} Armbian
+            tag_name: ${{ steps.organize.outputs.release_tag }}
+            body_path: release.txt
             files: build/output/images/*
