@@ -149,8 +149,7 @@ jobs:
             rm -rf output/images/*img
             cd tar/
             for file in *; do [[ ! -d "${file}" ]] && tar -Jcvf ${file}.xz ${file}; done
-            cd
-            cd build/
+            cd ..
             cp -f tar/*.img.xz output/images/
             echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ inputs.armbian_board }}" >> $GITHUB_OUTPUT
             echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
