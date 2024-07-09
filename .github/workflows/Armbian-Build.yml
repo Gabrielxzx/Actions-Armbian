@@ -8,7 +8,7 @@
 # Description: Build OpenWrt using GitHub Actions
 #
 
-name: Build RockChip Armv8 OpenWrt
+name: Build Armbian
 
 on:
     repository_dispatch:
@@ -27,7 +27,7 @@ on:
             armbian_board:
                 description: "Select device board."
                 required: false
-                default: "all"
+                default: "orangepizeroplus"
                 type: choice
                 options:
                     - hinlink-h28k
@@ -53,7 +53,7 @@ env:
     TZ: America/New_York
 
 jobs:
-  build-LEDE:
+  build-Armbian:
     runs-on: ubuntu-latest
     permissions: 
         contents: write
@@ -131,7 +131,7 @@ jobs:
             ln -sf /builder/build ${GITHUB_WORKSPACE}/build
             echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Compile Armbian [ ${{ inputs.set_release }} ]
+      - name: Compile Armbian [ ${{ inputs.armbian_board }} ] [ ${{ inputs.set_release }} ]
         id: compile
         working-directory: /builder
         if: steps.down.outputs.status == 'success' && !cancelled()
