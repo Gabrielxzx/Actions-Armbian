@@ -151,9 +151,6 @@ jobs:
             for file in *; do [[ ! -d "${file}" ]] && tar -Jcvf ${file}.xz ${file}; done
             cd ..
             cp -f tar/*.img.xz output/images/
-            echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ inputs.armbian_board }}" >> $GITHUB_OUTPUT
-            echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
-            touch release.txt
             echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload Armbian image to artifact
@@ -163,13 +160,22 @@ jobs:
             name: Armbian_${{ inputs.armbian_board }}_${{ env.FILE_DATE }}
             path: build/output/images/*
 
+      - name: Generate release tag
+        id: tag
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        run: |
+            echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ inputs.armbian_board }}" >> $GITHUB_OUTPUT
+            echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+            touch release.txt
+            echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Upload Armbian image to Release
         uses: softprops/action-gh-release@v2.0.4
-        if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        if: steps.tag.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-            name: ${{ steps.organize.outputs.release_date }} ${{ inputs.armbian_board }} Armbian
-            tag_name: ${{ steps.organize.outputs.release_tag }}
+            name: ${{ steps.tag.outputs.release_date }} ${{ inputs.armbian_board }} Armbian
+            tag_name: ${{ steps.tag.outputs.release_tag }}
             body_path: release.txt
             files: build/output/images/*
