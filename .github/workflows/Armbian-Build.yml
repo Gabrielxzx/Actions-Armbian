@@ -44,9 +44,6 @@ on:
                     - panther-x2
 
 env:
-    REPO_URL: https://github.com/coolsnowwolf/lede
-    REPO_BRANCH: master
-    ROOTFS_SCRIPT: compile-kernel/tools/script/armbian_rootfs.sh
     DEPENDS_URL: https://raw.githubusercontent.com/Gabrielxzx/Gabrielxzx-luci/master/openwrt-list/depends-ubuntu-2004-lede
     UPLOAD_ARTIFACT: true
     UPLOAD_RELEASE: true
@@ -139,28 +136,23 @@ jobs:
             # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
             cd build/
             ./compile.sh build BOARD=${{ inputs.armbian_board }} BRANCH=current RELEASE=${{ inputs.set_release }} BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no
+            echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
             echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Organize files and clear space
-        id: clean
-        if: steps.compile.outputs.status == 'success' && !cancelled()
-        run: |
-            # Organize and keep essential files, delete unnecessary files
-            chmod +x ${ROOTFS_SCRIPT}
-            ${ROOTFS_SCRIPT} -v ${{ inputs.set_release }}
-            
 
-            # Output cleaning result information
-            df -hT ${PWD}
-            echo "build_tag=Armbian_${{ inputs.set_release }}_${{ inputs.armbian_board }}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
-            echo "status=success" >> ${GITHUB_OUTPUT}
+      - name: Upload Armbian image to artifact
+        uses: actions/upload-artifact@main
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACT == 'true' && !cancelled()
+        with:
+            name: Armbian_${{ inputs.armbian_board }}_${{ env.FILE_DATE }}
+            path: build/output/images/*
 
       - name: Upload Armbian image to Release
-        uses: ncipollo/release-action@main
-        if: steps.clean.outputs.status == 'success' && !cancelled()
+        uses: softprops/action-gh-release@v2.0.4
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-            tag: ${{ steps.clean.outputs.build_tag }}
-            artifacts: build/output/images/*
-            allowUpdates: true
-            token: ${{ secrets.GITHUB_TOKEN }}
-
+            name: ${{ env.FILE_DATE }}_${{ inputs.armbian_board }} Armbian
+            tag_name: ${{ env.FILE_DATE }}_${{ inputs.armbian_board }}
+            files: build/output/images/*
