@@ -1,0 +1,162 @@
+#
+# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+# Description: Build OpenWrt using GitHub Actions
+#
+
+name: Build Armbian panther-x2
+
+on:
+    repository_dispatch:
+    workflow_dispatch:
+        inputs:
+            ssh:
+                description: 'SSH connection to Actions'
+                required: false
+                default: 'false'
+#    schedule:
+#        - cron: 0 18 * * *
+
+env:
+    SET_BOARD: panther-x2
+    SET_RELEASE: jammy
+    SET_BRANCH: current
+    DEPENDS_URL: https://raw.githubusercontent.com/Gabrielxzx/Gabrielxzx-luci/master/openwrt-list/depends-ubuntu-2004-lede
+    UPLOAD_ARTIFACT: true
+    UPLOAD_RELEASE: true
+    TZ: America/New_York
+
+jobs:
+  build-Armbian:
+    runs-on: ubuntu-latest
+    permissions: 
+        contents: write
+
+    steps:
+      - name: Check server performance
+        run: |
+            echo "警告⚠"
+            echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
+            echo -e "已知CPU型号(降序): 7763，8370C，8272CL，8171M，E5-2673\n"
+            echo "--------------------------CPU信息--------------------------"
+            echo "CPU物理数量: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+            echo "CPU核心数量: $(nproc)"
+            echo -e "CPU型号信息:$(cat /proc/cpuinfo | grep -m1 name | awk -F: '{print $2}')\n"
+            echo "--------------------------内存信息--------------------------"
+            echo "已安装内存详细信息:"
+            echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Initialization environment
+        id: init
+        env:
+            DEBIAN_FRONTEND: noninteractive
+        run: |
+            sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+            sudo docker image prune --all --force
+            sudo -E apt-get -qq update
+            sudo -E apt-get -qq install $(curl -fsSL $DEPENDS_URL)
+            sudo -E apt-get -qq autoremove --purge
+            sudo -E apt-get -qq clean
+            sudo timedatectl set-timezone "$TZ"
+            sudo chown $USER:$GROUPS $GITHUB_WORKSPACE
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Before freeing up disk space
+        run: |
+            echo "Before freeing up disk space"
+            echo "=============================================================================="
+            df -hT
+            echo "=============================================================================="
+
+      - name: Create simulated physical disk
+        run: |
+            mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
+            root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
+            sudo truncate -s "${mnt_size}"G /mnt/mnt.img
+            sudo truncate -s "${root_size}"G /root.img
+            sudo losetup /dev/loop6 /mnt/mnt.img
+            sudo losetup /dev/loop7 /root.img
+            sudo pvcreate /dev/loop6
+            sudo pvcreate /dev/loop7
+            sudo vgcreate github /dev/loop6 /dev/loop7
+            sudo lvcreate -n runner -l 100%FREE github
+            sudo mkfs.xfs /dev/github/runner
+            sudo mkdir -p /builder
+            sudo mount /dev/github/runner /builder
+            sudo chown -R runner.runner /builder
+
+      - name: Free up disk space complete
+        run: |
+            echo "Free up disk space complete"
+            echo "=============================================================================="
+            df -hT
+            echo "=============================================================================="
+
+      - name: Download source code
+        id: down
+        working-directory: /builder
+        if: steps.init.outputs.status == 'success' && !cancelled()
+        run: |
+            df -hT ${PWD}
+            git clone -q --single-branch --depth=1 --branch=main https://github.com/armbian/build.git build
+            ln -sf /builder/build ${GITHUB_WORKSPACE}/build
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Compile Armbian
+        id: compile
+        working-directory: /builder
+        if: steps.down.outputs.status == 'success' && !cancelled()
+        run: |
+            # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
+            cd build/
+            ./compile.sh build BOARD=$SET_BOARD BRANCH=$SET_BRANCH RELEASE=$SET_RELEASE BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no
+            echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+            echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Organize files
+        id: organize
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        run: |
+            cd build/
+            [[ -d "tar" ]] || mkdir tar
+            cp -f output/images/*img tar/
+            rm -rf output/images/*img
+            cd tar/
+            for file in *; do [[ ! -d "${file}" ]] && tar -Jcvf ${file}.xz ${file}; done
+            cd ..
+            cp -f tar/*.img.xz output/images/
+            echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload Armbian image to artifact
+        uses: actions/upload-artifact@main
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_ARTIFACT == 'true' && !cancelled()
+        with:
+            name: Armbian_${{ env.SET_BOARD }}_${{ env.FILE_DATE }}
+            path: build/output/images/*
+
+      - name: Generate release tag
+        id: tag
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        run: |
+            echo "release_tag=$(date +"%Y.%m.%d-%H%M")_${{ env.SET_BOARD }}" >> $GITHUB_OUTPUT
+            echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+            touch release.txt
+            echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload Armbian image to Release
+        uses: softprops/action-gh-release@v2.0.4
+        if: steps.tag.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+            name: ${{ steps.tag.outputs.release_date }} ${{ env.SET_BOARD }} Armbian
+            tag_name: ${{ steps.tag.outputs.release_tag }}
+            body_path: release.txt
+            files: build/output/images/*

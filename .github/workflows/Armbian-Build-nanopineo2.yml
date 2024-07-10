@@ -8,7 +8,7 @@
 # Description: Build OpenWrt using GitHub Actions
 #
 
-name: Build Armbian H28K
+name: Build Armbian nanopineo2
 
 on:
     repository_dispatch:
@@ -22,9 +22,9 @@ on:
 #        - cron: 0 18 * * *
 
 env:
-    SET_BOARD: hinlink-h28k
+    SET_BOARD: nanopineo2
     SET_RELEASE: jammy
-    SET_BRANCH: vendor
+    SET_BRANCH: current
     DEPENDS_URL: https://raw.githubusercontent.com/Gabrielxzx/Gabrielxzx-luci/master/openwrt-list/depends-ubuntu-2004-lede
     UPLOAD_ARTIFACT: true
     UPLOAD_RELEASE: true
@@ -109,7 +109,7 @@ jobs:
             ln -sf /builder/build ${GITHUB_WORKSPACE}/build
             echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Compile Armbian [ ${{ env.SET_BOARD }} ]
+      - name: Compile Armbian
         id: compile
         working-directory: /builder
         if: steps.down.outputs.status == 'success' && !cancelled()
