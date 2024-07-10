@@ -135,7 +135,7 @@ jobs:
         run: |
             # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
             cd build/
-            ./compile.sh build BOARD=${{ inputs.armbian_board }} RELEASE=${{ inputs.set_release }} BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no
+            ./compile.sh build BOARD=${{ inputs.armbian_board }} BRANCH=current RELEASE=${{ inputs.set_release }} BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no
             echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
             echo "status=success" >> ${GITHUB_OUTPUT}
 
